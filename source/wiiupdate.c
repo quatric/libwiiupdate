@@ -284,7 +284,7 @@ wiiupdate_state WIIUPDATE_State(void) { return state; }
 wiiupdate_state WIIUPDATE_Wait(int timeout_ms)
 {
     u64 start = gettime();
-    while (state == WIIUPDATE_CHECKING) {
+    while (running) { /* also covers a cancelled check whose thread is still winding down */
         if (timeout_ms >= 0 && ticks_to_millisecs(diff_ticks(start, gettime())) >= (u64)timeout_ms) break;
         usleep(10000);
     }

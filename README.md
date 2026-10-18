@@ -82,13 +82,18 @@ git submodule add https://github.com/quatric/libwiiupdate.git libwiiupdate
 ```
 
 ```make
-LIBDIRS += $(CURDIR)/libwiiupdate     # include/ and lib/
 LIBS    := -lwiiupdate $(LIBS)        # ahead of -lwiiuse -lbte -logc
+LIBDIRS += $(CURDIR)/libwiiupdate     # include/ and lib/
 
-$(BUILD): libwiiupdate/lib/libwiiupdate.a
-libwiiupdate/lib/libwiiupdate.a:
+# after the $(BUILD) rule, so it stays the default goal
+$(BUILD): libwiiupdate-lib
+.PHONY: libwiiupdate-lib
+libwiiupdate-lib:
 	@$(MAKE) --no-print-directory -C libwiiupdate
 ```
+
+The library builds from its own sources (mbedTLS is vendored), so CI needs
+nothing beyond devkitPPC and `submodules: true` on checkout.
 
 See `example/main.c` for a complete program.
 

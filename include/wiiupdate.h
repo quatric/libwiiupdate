@@ -42,8 +42,9 @@ int WIIUPDATE_Start(const char *owner, const char *repo, const char *current_ver
 
 wiiupdate_state WIIUPDATE_State(void);
 
-/* Block until the check finishes or timeout_ms passes (<0 waits forever).
- * Call before the app brings up the network itself, so the two do not race. */
+/* Block until the check thread has finished (cancelled or not) or timeout_ms
+ * passes (<0 waits forever). Call before the app brings up or shuts down the
+ * network itself, so the two do not race. */
 wiiupdate_state WIIUPDATE_Wait(int timeout_ms);
 
 /* Stop caring about the result. The thread finishes in the background; its
