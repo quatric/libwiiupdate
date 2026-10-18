@@ -101,6 +101,19 @@ while (running) {
 }
 ```
 
+Or let the library run that state machine and only draw the box:
+
+```c
+wiiupdate_popup pop;
+int st = WIIUPDATE_Popup(buttons_down, &pop);
+if (st == WIIUPDATE_POPUP_EXIT) running = false;   /* installed, back to the loader */
+else if (st == WIIUPDATE_POPUP_OPEN) {
+    buttons_down = 0;                              /* the popup has the controls */
+    draw_box(pop.title, pop.text, pop.detail, pop.hint);
+    if (pop.progress >= 0) draw_progress(pop.progress);
+}
+```
+
 ### Installing
 
 `WIIUPDATE_Install()` picks the release's `.zip` asset (names containing

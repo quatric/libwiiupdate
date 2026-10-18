@@ -104,6 +104,22 @@ const char *WIIUPDATE_InstallError(void);
 /* The folder the update was installed to. */
 const char *WIIUPDATE_InstallDir(void);
 
+/* Ready-made popup logic for GUI apps. Call once per frame with the
+ * WPAD_BUTTON_* bits pressed this frame; while it returns OPEN, draw a box
+ * from *popup and keep the buttons away from the app. A installs (or closes
+ * the popup when there is nothing to install), B closes it or cancels the
+ * download. EXIT means the update is installed and the user pressed A: leave
+ * the app the way it normally exits to the loader. */
+enum { WIIUPDATE_POPUP_CLOSED = 0, WIIUPDATE_POPUP_OPEN, WIIUPDATE_POPUP_EXIT };
+typedef struct {
+    const char *title;   /* "Update available", "Updating...", "Updated", "Update failed" */
+    char text[160];      /* e.g. "Version v1.3.0 is available (you have v1.2.0)." */
+    const char *detail;  /* a second line (the releases URL) or "" */
+    const char *hint;    /* buttons, e.g. "A: Update now    B: Later", or "" */
+    int progress;        /* 0-100 while updating (draw a bar), else -1 */
+} wiiupdate_popup;
+int WIIUPDATE_Popup(u32 buttons_down, wiiupdate_popup *popup);
+
 /* Compare two version strings numerically ("v1.10" > "1.9.2"). Leading text
  * before the first digit is skipped. Returns <0, 0 or >0. */
 int WIIUPDATE_CompareVersions(const char *a, const char *b);
