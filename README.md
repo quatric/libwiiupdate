@@ -58,7 +58,7 @@ int main(int argc, char **argv)
 
 The last argument returns the `WPAD_BUTTON_*` bits pressed this frame. With
 `NULL` the library scans Wii Remotes, Classic Controllers and GameCube pads
-itself; apps on libinput-wii pass a small wrapper instead:
+itself; apps on [libwiiinput](https://github.com/quatric/libwiiinput) pass a small wrapper instead:
 
 ```c
 static u32 buttons(void) { INPUT_Update(); return INPUT_ButtonsDown(); }
