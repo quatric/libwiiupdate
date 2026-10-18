@@ -1,0 +1,9 @@
+# Desktop build of the network path, for checking TLS and parsing against GitHub.
+MB      := vendor/mbedtls
+CFLAGS  := -O1 -Wall -Itests/stub -Iinclude -Iconfig -I$(MB)/include -I$(MB)/library \
+           -DMBEDTLS_CONFIG_FILE=\"mbedtls_wiiupdate.h\" -Wno-unused-parameter
+SRCS    := tests/host_check.c source/wiiupdate.c source/wiiupdate_version.c $(wildcard $(MB)/library/*.c)
+
+build/host_check: $(SRCS)
+	@mkdir -p build
+	$(CC) $(CFLAGS) $(SRCS) -lpthread -o $@
