@@ -1,11 +1,11 @@
-/* Host-side test of version comparison and release parsing:
- *   cc -Iinclude -Itests tests/host_test.c source/wiiupdate_version.c -o /tmp/t && /tmp/t releases.json */
+/* Host-side test of version comparison, release parsing and zip unpacking:
+ *   make -f tests/Makefile.host build/host_test && ./build/host_test [releases.json] */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "wiiupdate.h"
-
-int wiiupdate_newest_tag(const char *json, char *out, size_t out_len);
+#include <sys/stat.h>
+#include "miniz.h"
+#include "wiiupdate_internal.h"
 
 static int failures;
 #define CHECK(c) do { if (!(c)) { printf("FAIL %s:%d %s\n", __FILE__, __LINE__, #c); failures++; } } while (0)
@@ -26,6 +26,45 @@ int main(int argc, char **argv)
     CHECK(wiiupdate_newest_tag(json, tag, sizeof tag) == 0);
     CHECK(!strcmp(tag, "v1.1.0"));
     CHECK(wiiupdate_newest_tag("[]", tag, sizeof tag) < 0);
+
+    char asset[256];
+    const char *rel = "[{\"tag_name\":\"v1.1\",\"assets\":[{\"browser_download_url\":\"https://x/a.tar.gz\"},"
+                      "{\"browser_download_url\":\"https://x/src.zip\"},{\"browser_download_url\":\"https://x/app-hbc.zip\"}],"
+                      "\"body\":\"\\\"browser_download_url\\\":\\\"https://evil/x.zip\\\"\"},"
+                      "{\"tag_name\":\"v1.0\",\"assets\":[{\"browser_download_url\":\"https://x/old.dol\"}]},"
+                      "{\"tag_name\":\"v0.9\",\"assets\":[{\"browser_download_url\":\"https://x/n.tar.gz\"}]}]";
+    CHECK(wiiupdate_release_asset(rel, "v1.1", asset, sizeof asset) == 0 && !strcmp(asset, "https://x/app-hbc.zip"));
+    CHECK(wiiupdate_release_asset(rel, "v1.0", asset, sizeof asset) == 0 && !strcmp(asset, "https://x/old.dol"));
+    CHECK(wiiupdate_release_asset(rel, "v0.9", asset, sizeof asset) < 0);
+    CHECK(wiiupdate_release_asset(rel, "v2", asset, sizeof asset) < 0);
+
+    /* Unpack: only apps/<Name>/ lands in the app folder, nothing escapes it. */
+    mz_zip_archive zw;
+    memset(&zw, 0, sizeof zw);
+    const char *zip = "build/test.zip";
+    CHECK(mz_zip_writer_init_file(&zw, zip, 0));
+    mz_zip_writer_add_mem(&zw, "README.md", "readme", 6, MZ_DEFAULT_COMPRESSION);
+    mz_zip_writer_add_mem(&zw, "apps/MyApp/boot.dol", "new dol", 7, MZ_DEFAULT_COMPRESSION);
+    mz_zip_writer_add_mem(&zw, "apps/MyApp/data/level1.bin", "level", 5, MZ_DEFAULT_COMPRESSION);
+    mz_zip_writer_add_mem(&zw, "apps/MyApp/../../escape.txt", "bad", 3, MZ_DEFAULT_COMPRESSION);
+    mz_zip_writer_finalize_archive(&zw);
+    mz_zip_writer_end(&zw);
+    char name[64], err[128];
+    CHECK(wiiupdate_zip_app_name(zip, name, sizeof name) == 0 && !strcmp(name, "MyApp"));
+    system("rm -rf build/sd && mkdir -p build/sd/apps/Renamed && echo old > build/sd/apps/Renamed/boot.dol"
+           " && echo keep > build/sd/apps/Renamed/settings.ini");
+    CHECK(wiiupdate_extract(zip, "build/sd/apps/Renamed", NULL, NULL, err, sizeof err) == 0);
+    FILE *f = fopen("build/sd/apps/Renamed/boot.dol", "rb");
+    char got[16] = "";
+    if (f) { fread(got, 1, sizeof got - 1, f); fclose(f); }
+    CHECK(!strcmp(got, "new dol"));
+    struct stat st;
+    CHECK(stat("build/sd/apps/Renamed/data/level1.bin", &st) == 0);
+    CHECK(stat("build/sd/apps/Renamed/settings.ini", &st) == 0);
+    CHECK(stat("build/sd/apps/Renamed/README.md", &st) != 0);
+    CHECK(stat("build/sd/escape.txt", &st) != 0 && stat("build/escape.txt", &st) != 0);
+    CHECK(stat("build/sd/apps/Renamed/boot.dol.wutmp", &st) != 0);
+    CHECK(wiiupdate_extract("build/missing.zip", "build/sd/apps/Renamed", NULL, NULL, err, sizeof err) < 0);
 
     if (argc > 1) {
         FILE *f = fopen(argv[1], "rb");

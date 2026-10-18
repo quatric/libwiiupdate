@@ -15,8 +15,7 @@ jobs:
       - name: Host tests
         run: |
           apt-get update && apt-get install -y --no-install-recommends gcc libc6-dev
-          mkdir -p build
-          gcc -Wall -Iinclude -Itests/stub tests/host_test.c source/wiiupdate_version.c -o build/host_test
+          make -f tests/Makefile.host CC=gcc build/host_test
           ./build/host_test
       - uses: actions/upload-artifact@v4
         with:

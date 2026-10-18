@@ -1,4 +1,5 @@
-/* libwiiupdate: check GitHub for a newer release of a Wii homebrew app.
+/* libwiiupdate: check GitHub for a newer release of a Wii homebrew app, and
+ * optionally install it over the running copy.
  *
  * The check runs on its own thread (network bring-up, HTTPS request to the
  * GitHub releases API, version comparison) so it never blocks the app.
@@ -13,9 +14,15 @@
  *
  *     WIIUPDATE_CheckConsole("quatric", "MyApp", "1.2.0", NULL);
  *
- * which prints one line, lets B skip the check, and only stops to show a
- * notice when a newer version is out. Failures are silent apart from a short
+ * which prints one line, lets B skip the check, and only stops to offer the
+ * update when a newer version is out. Failures are silent apart from a short
  * "could not check" note; the app just carries on.
+ *
+ * Installing: call WIIUPDATE_SetAppPath(argv[0]) first so the update lands in
+ * the app's own folder, then WIIUPDATE_Install() and poll
+ * WIIUPDATE_InstallState() / WIIUPDATE_Progress(). The release's HBC zip is
+ * streamed to the SD card, then unpacked over the app folder. Once it reports
+ * WIIUPDATE_INSTALL_DONE the app should exit back to the loader.
  */
 #ifndef WIIUPDATE_H
 #define WIIUPDATE_H
@@ -33,7 +40,17 @@ typedef enum {
     WIIUPDATE_AVAILABLE,    /* WIIUPDATE_Latest() is newer */
     WIIUPDATE_FAILED,       /* no network, TLS or HTTP error, bad reply */
     WIIUPDATE_CANCELLED,    /* WIIUPDATE_Cancel was called */
+    WIIUPDATE_UPDATED,      /* only from WIIUPDATE_CheckConsole: the update was
+                               installed; exit to the loader */
 } wiiupdate_state;
+
+typedef enum {
+    WIIUPDATE_INSTALL_IDLE = 0,
+    WIIUPDATE_INSTALL_DOWNLOADING,
+    WIIUPDATE_INSTALL_EXTRACTING,
+    WIIUPDATE_INSTALL_DONE,     /* new files are in place */
+    WIIUPDATE_INSTALL_FAILED,   /* see WIIUPDATE_InstallError(); the old copy is untouched */
+} wiiupdate_install_state;
 
 /* Start a background check of github.com/<owner>/<repo>/releases against
  * current_version (e.g. "1.2.0" or "v1.2.0"). Brings the network up if the
@@ -65,6 +82,28 @@ const char *WIIUPDATE_Url(void);
  * "Version v1.3.0 is available (you have 1.2.0)." */
 const char *WIIUPDATE_Message(void);
 
+/* Tell the library where the running app lives, e.g. argv[0] from main
+ * ("sd:/apps/MyApp/boot.dol"). Without it, updates go to
+ * sd:/apps/<folder named in the zip>/ (or usb:/apps/ when there is no SD card). */
+void WIIUPDATE_SetAppPath(const char *argv0);
+
+/* 1 when an update was found and its release has an installable asset (an
+ * HBC .zip, or a .dol). */
+int WIIUPDATE_CanInstall(void);
+
+/* Download and install the update on a background thread. Brings up libfat
+ * (fatInitDefault) if the app has not mounted its storage. WIIUPDATE_Cancel
+ * stops the download; unpacking is not interrupted. Returns 0 if started. */
+int WIIUPDATE_Install(void);
+
+wiiupdate_install_state WIIUPDATE_InstallState(void);
+/* 0-100 over download and unpacking. */
+int WIIUPDATE_Progress(void);
+/* Why the install failed, e.g. "download failed" ("" otherwise). */
+const char *WIIUPDATE_InstallError(void);
+/* The folder the update was installed to. */
+const char *WIIUPDATE_InstallDir(void);
+
 /* Compare two version strings numerically ("v1.10" > "1.9.2"). Leading text
  * before the first digit is skipped. Returns <0, 0 or >0. */
 int WIIUPDATE_CompareVersions(const char *a, const char *b);
@@ -74,7 +113,9 @@ int WIIUPDATE_CompareVersions(const char *a, const char *b);
  * the final state. buttons_down returns WPAD_BUTTON_* bits pressed this frame
  * (e.g. a wrapper around INPUT_Update/INPUT_ButtonsDown); pass NULL to have
  * the library scan Wii Remotes and GameCube pads itself. B skips the check.
- * When an update is available the notice stays up until A/B or 10 seconds. */
+ * When an update is available it offers "A: update now, B: later" (later is
+ * picked after 20 seconds). Returns WIIUPDATE_UPDATED once a new version was
+ * installed and the user pressed A; the app should then exit to the loader. */
 wiiupdate_state WIIUPDATE_CheckConsole(const char *owner, const char *repo, const char *current_version,
                                        u32 (*buttons_down)(void));
 
