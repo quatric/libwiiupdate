@@ -125,7 +125,18 @@ The target folder is the folder of `argv[0]` as given to
 `WIIUPDATE_SetAppPath` (the Homebrew Channel passes e.g.
 `sd:/apps/MyApp/boot.dol`). Without it, the zip's own `apps/<Name>/` folder on
 `sd:` (or `usb:` when there is no SD card) is used. Files in the app folder
-that the zip does not contain, such as saved settings, are left alone.
+that the zip does not contain, such as saved settings, are left alone, and
+files that are already identical are not rewritten.
+
+Apps with large asset folders can limit what an update overwrites:
+
+```c
+static const char *const files[] = { "boot.dol", "meta.xml", "icon.png", NULL };
+WIIUPDATE_SetUpdateFiles(files);
+```
+
+The listed files are replaced when they changed; every other file in the zip
+is only written when it is missing from the SD card.
 
 ### Other calls
 

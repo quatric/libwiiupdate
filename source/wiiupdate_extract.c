@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <errno.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -91,6 +92,28 @@ static int make_parents(char *path)
     return 0;
 }
 
+/* 1 when the file at `path` already holds exactly the entry's bytes. */
+static int same_file(const char *path, const mz_zip_archive_file_stat *st, char *buf, size_t buf_len)
+{
+    struct stat fs;
+    if (stat(path, &fs) != 0 || (mz_uint64)fs.st_size != st->m_uncomp_size) return 0;
+    FILE *f = fopen(path, "rb");
+    if (!f) return 0;
+    mz_ulong crc = MZ_CRC32_INIT;
+    size_t n;
+    while ((n = fread(buf, 1, buf_len, f)) > 0) crc = mz_crc32(crc, (const mz_uint8 *)buf, n);
+    int err = ferror(f);
+    fclose(f);
+    return !err && crc == st->m_crc32;
+}
+
+static int listed(const char *rel, const char *const *files)
+{
+    for (; *files; files++)
+        if (!strcasecmp(rel, *files)) return 1;
+    return 0;
+}
+
 typedef struct {
     FILE *f;
     unsigned long long done, total;
@@ -108,7 +131,7 @@ static size_t write_cb(void *opaque, mz_uint64 ofs, const void *buf, size_t n)
     return put;
 }
 
-int wiiupdate_extract(const char *zip_path, const char *app_dir,
+int wiiupdate_extract(const char *zip_path, const char *app_dir, const char *const *update_files,
                       void (*progress)(void *, unsigned long long, unsigned long long), void *ctx, char *err,
                       size_t err_len)
 {
@@ -124,22 +147,36 @@ int wiiupdate_extract(const char *zip_path, const char *app_dir,
     unsigned char *install = calloc(count ? count : 1, 1);
     char *path = malloc(PATH_LEN), *tmp = malloc(PATH_LEN);
     char *iobuf = malloc(64 * 1024);
-    int result = -1, written = 0;
+    int result = -1, eligible = 0;
     writer_t w = { NULL, 0, 0, progress, ctx };
     if (!install || !path || !tmp || !iobuf) {
         snprintf(err, err_len, "out of memory");
         goto out;
     }
 
-    /* Which entries to install, and how many bytes that is. */
+    /* Which entries to install, and how many bytes that is. Files that are
+     * already there with the same contents are left alone, and so is every
+     * file outside update_files (when given) that already exists, so big
+     * asset folders are not rewritten on every update. */
     for (mz_uint i = 0; i < count; i++) {
         mz_zip_archive_file_stat st;
         if (!mz_zip_reader_file_stat(&zip, i, &st) || st.m_is_directory) continue;
         if (strncmp(st.m_filename, prefix, prefix_len)) continue;
         const char *rel = st.m_filename + prefix_len;
         if (!safe_relative(rel)) continue;
+        eligible = 1;
+        if (snprintf(path, PATH_LEN, "%s/%s", app_dir, rel) >= PATH_LEN) continue;
+        struct stat fs;
+        if (stat(path, &fs) == 0) {
+            if (update_files && !listed(rel, update_files)) continue;
+            if (same_file(path, &st, iobuf, 64 * 1024)) continue;
+        }
         install[i] = 1;
         w.total += st.m_uncomp_size;
+    }
+    if (!eligible) {
+        snprintf(err, err_len, "nothing to install in the zip");
+        goto out;
     }
 
     /* Pass 1: write everything under temporary names. */
@@ -155,7 +192,6 @@ int wiiupdate_extract(const char *zip_path, const char *app_dir,
             snprintf(err, err_len, "cannot write to %s", app_dir);
             goto out;
         }
-        written = 1;
         setvbuf(w.f, iobuf, _IOFBF, 64 * 1024);
         int ok = mz_zip_reader_extract_to_callback(&zip, i, write_cb, &w, 0);
         if (fclose(w.f) != 0) ok = 0;
@@ -165,11 +201,6 @@ int wiiupdate_extract(const char *zip_path, const char *app_dir,
             goto out;
         }
     }
-    if (!written) {
-        snprintf(err, err_len, "nothing to install in the zip");
-        goto out;
-    }
-
     /* Pass 2: swap the new files in. */
     for (mz_uint i = 0; i < count; i++) {
         if (!install[i]) continue;

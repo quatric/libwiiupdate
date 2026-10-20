@@ -26,9 +26,13 @@ int wiiupdate_release_asset(const char *json, const char *tag, char *out, size_t
  * folder is unpacked as is). Every file is written to a temporary name first
  * and only renamed over the old one once all of them were written, so a
  * failure leaves the installed app untouched. progress gets bytes written so
- * far and the total. Returns 0 on success; err gets a short reason. */
-int wiiupdate_extract(const char *zip_path, const char *app_dir, void (*progress)(void *, unsigned long long,
-                      unsigned long long), void *ctx, char *err, size_t err_len);
+ * far and the total. Files whose contents are unchanged are skipped; with
+ * update_files (a NULL-terminated list of paths relative to app_dir), any
+ * other file is only written when it does not exist yet. Returns 0 on
+ * success; err gets a short reason. */
+int wiiupdate_extract(const char *zip_path, const char *app_dir, const char *const *update_files,
+                      void (*progress)(void *, unsigned long long, unsigned long long), void *ctx, char *err,
+                      size_t err_len);
 
 /* The "apps/<Name>" folder name inside an HBC zip, or "" if none. */
 int wiiupdate_zip_app_name(const char *zip_path, char *out, size_t out_len);

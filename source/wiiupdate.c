@@ -23,6 +23,7 @@ static volatile int running; /* a thread is alive, even after a cancel */
 static volatile int progress;
 static char owner[64], repo[96], current[48], latest[48], url[200], message[200];
 static char asset[1024], app_path[256], install_dir[256], install_error[160];
+static const char *const *update_files;
 static lwp_t thread = LWP_THREAD_NULL;
 static u8 stack[STACK_SIZE] ATTRIBUTE_ALIGN(32);
 
@@ -215,7 +216,7 @@ static int install(void)
     }
 
     if (is_zip) {
-        if (wiiupdate_extract(tmp, install_dir, on_extract, NULL, install_error, sizeof install_error) < 0) goto out;
+        if (wiiupdate_extract(tmp, install_dir, update_files, on_extract, NULL, install_error, sizeof install_error) < 0) goto out;
     } else {
         /* A bare .dol replaces the running executable. */
         char dol[320];
@@ -253,6 +254,8 @@ void WIIUPDATE_SetAppPath(const char *argv0)
     if (argv0 && strchr(argv0, '/')) snprintf(app_path, sizeof app_path, "%s", argv0);
     else app_path[0] = 0;
 }
+
+void WIIUPDATE_SetUpdateFiles(const char *const *files) { update_files = files; }
 
 int WIIUPDATE_CanInstall(void) { return state == WIIUPDATE_AVAILABLE && asset[0]; }
 

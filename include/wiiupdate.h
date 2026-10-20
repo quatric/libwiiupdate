@@ -87,6 +87,18 @@ const char *WIIUPDATE_Message(void);
  * sd:/apps/<folder named in the zip>/ (or usb:/apps/ when there is no SD card). */
 void WIIUPDATE_SetAppPath(const char *argv0);
 
+/* Limit which installed files an update may overwrite: a NULL-terminated
+ * list of paths relative to the app folder, e.g.
+ *     static const char *const files[] = { "boot.dol", "meta.xml", "icon.png", NULL };
+ *     WIIUPDATE_SetUpdateFiles(files);
+ * Listed files are replaced when the release has different contents; every
+ * other file in the zip (assets such as sounds or images) is only written
+ * when it is missing, so an update does not rewrite large asset folders.
+ * The list is not copied and must stay valid. Without it (or with NULL) every
+ * file in the zip may be replaced. Either way files that are already
+ * identical are skipped. */
+void WIIUPDATE_SetUpdateFiles(const char *const *files);
+
 /* 1 when an update was found and its release has an installable asset (an
  * HBC .zip, or a .dol). */
 int WIIUPDATE_CanInstall(void);

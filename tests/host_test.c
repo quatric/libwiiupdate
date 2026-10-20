@@ -53,7 +53,7 @@ int main(int argc, char **argv)
     CHECK(wiiupdate_zip_app_name(zip, name, sizeof name) == 0 && !strcmp(name, "MyApp"));
     system("rm -rf build/sd && mkdir -p build/sd/apps/Renamed && echo old > build/sd/apps/Renamed/boot.dol"
            " && echo keep > build/sd/apps/Renamed/settings.ini");
-    CHECK(wiiupdate_extract(zip, "build/sd/apps/Renamed", NULL, NULL, err, sizeof err) == 0);
+    CHECK(wiiupdate_extract(zip, "build/sd/apps/Renamed", NULL, NULL, NULL, err, sizeof err) == 0);
     FILE *f = fopen("build/sd/apps/Renamed/boot.dol", "rb");
     char got[16] = "";
     if (f) { fread(got, 1, sizeof got - 1, f); fclose(f); }
@@ -64,7 +64,33 @@ int main(int argc, char **argv)
     CHECK(stat("build/sd/apps/Renamed/README.md", &st) != 0);
     CHECK(stat("build/sd/escape.txt", &st) != 0 && stat("build/escape.txt", &st) != 0);
     CHECK(stat("build/sd/apps/Renamed/boot.dol.wutmp", &st) != 0);
-    CHECK(wiiupdate_extract("build/missing.zip", "build/sd/apps/Renamed", NULL, NULL, err, sizeof err) < 0);
+    CHECK(wiiupdate_extract("build/missing.zip", "build/sd/apps/Renamed", NULL, NULL, NULL, err, sizeof err) < 0);
+
+    /* With an update list: listed files are replaced, existing assets are kept,
+     * missing assets are added, and an unchanged install is a no-op. */
+    static const char *const only[] = { "boot.dol", "meta.xml", NULL };
+    mz_zip_writer_init_file(&zw, zip, 0);
+    mz_zip_writer_add_mem(&zw, "apps/MyApp/boot.dol", "dol v2", 6, MZ_DEFAULT_COMPRESSION);
+    mz_zip_writer_add_mem(&zw, "apps/MyApp/data/level1.bin", "level v2", 8, MZ_DEFAULT_COMPRESSION);
+    mz_zip_writer_add_mem(&zw, "apps/MyApp/data/level2.bin", "new", 3, MZ_DEFAULT_COMPRESSION);
+    mz_zip_writer_finalize_archive(&zw);
+    mz_zip_writer_end(&zw);
+    CHECK(wiiupdate_extract(zip, "build/sd/apps/Renamed", only, NULL, NULL, err, sizeof err) == 0);
+    f = fopen("build/sd/apps/Renamed/boot.dol", "rb");
+    memset(got, 0, sizeof got);
+    if (f) { fread(got, 1, sizeof got - 1, f); fclose(f); }
+    CHECK(!strcmp(got, "dol v2"));
+    f = fopen("build/sd/apps/Renamed/data/level1.bin", "rb");
+    memset(got, 0, sizeof got);
+    if (f) { fread(got, 1, sizeof got - 1, f); fclose(f); }
+    CHECK(!strcmp(got, "level"));
+    CHECK(stat("build/sd/apps/Renamed/data/level2.bin", &st) == 0);
+    struct stat before, after;
+    stat("build/sd/apps/Renamed/boot.dol", &before);
+    system("sleep 1");
+    CHECK(wiiupdate_extract(zip, "build/sd/apps/Renamed", only, NULL, NULL, err, sizeof err) == 0);
+    stat("build/sd/apps/Renamed/boot.dol", &after);
+    CHECK(before.st_mtime == after.st_mtime);   /* identical: not rewritten */
 
     if (argc > 1) {
         FILE *f = fopen(argv[1], "rb");
