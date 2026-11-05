@@ -132,6 +132,21 @@ typedef struct {
 } wiiupdate_popup;
 int WIIUPDATE_Popup(u32 buttons_down, wiiupdate_popup *popup);
 
+/* One HTTPS POST, for an app that talks to a web API of its own with the
+ * library's TLS (no second copy of mbedTLS needed). Blocks; safe to call
+ * while an update check runs. The network must be up already. body
+ * (body_len bytes, content_type e.g. "application/json") goes to url
+ * ("https://host/path", port 443); redirects are not followed. The reply's
+ * body, whatever its status, comes back in *reply: NUL-terminated, free()
+ * it. Replies over max_reply bytes (0 = 1 MiB) fail. user_agent may be NULL.
+ * *cancel (may be NULL) going non-zero stops the request. Returns the HTTP
+ * status, or -1 when no complete reply came (network, DNS, TLS, cancel).
+ * Servers are checked against the bundled roots (Let's Encrypt / ISRG,
+ * DigiCert, Sectigo / USERTrust). */
+int WIIUPDATE_HttpPost(const char *url, const char *content_type, const void *body, size_t body_len,
+                       const char *user_agent, char **reply, size_t *reply_len, size_t max_reply,
+                       volatile int *cancel);
+
 /* Compare two version strings numerically ("v1.10" > "1.9.2"). Leading text
  * before the first digit is skipped. Returns <0, 0 or >0. */
 int WIIUPDATE_CompareVersions(const char *a, const char *b);

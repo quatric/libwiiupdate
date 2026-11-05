@@ -1,6 +1,8 @@
-/* Minimal HTTPS GET client: TLS 1.2 via the bundled mbedTLS, follows
- * redirects, and streams the body to a callback so large downloads never
- * have to fit in memory. */
+/* Minimal HTTPS client: TLS 1.2 via the bundled mbedTLS. GET follows
+ * redirects and streams the body to a callback so large downloads never
+ * have to fit in memory; POST sends a body and returns the reply whatever
+ * its status. Each request has its own TLS state, so the update check and
+ * an app's own requests can run at the same time. */
 #define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
@@ -53,20 +55,21 @@ static int wii_entropy(void *data, unsigned char *out, size_t len, size_t *olen)
 /* ── Connection ──────────────────────────────────────────────────────────── */
 
 typedef struct {
+    mbedtls_entropy_context entropy;
+    mbedtls_ctr_drbg_context drbg;
+    mbedtls_x509_crt cas;
+    mbedtls_ssl_config conf;
+} tls_t;
+
+typedef struct {
     int fd;
     volatile int *cancel;
+    tls_t *tls;
     mbedtls_ssl_context ssl;
     unsigned char buf[4096];
     size_t pos, len;
     int eof;
 } conn_t;
-
-static struct {
-    mbedtls_entropy_context entropy;
-    mbedtls_ctr_drbg_context drbg;
-    mbedtls_x509_crt cas;
-    mbedtls_ssl_config conf;
-} tls;
 
 static int wait_fd(conn_t *c, int events)
 {
@@ -99,36 +102,36 @@ static int sock_recv(void *ctx, unsigned char *buf, size_t len)
     return ret < 0 ? MBEDTLS_ERR_SSL_INTERNAL_ERROR : ret;
 }
 
-static int tls_init(void)
+static int tls_init(tls_t *t)
 {
-    mbedtls_entropy_init(&tls.entropy);
-    mbedtls_ctr_drbg_init(&tls.drbg);
-    mbedtls_x509_crt_init(&tls.cas);
-    mbedtls_ssl_config_init(&tls.conf);
-    mbedtls_entropy_add_source(&tls.entropy, wii_entropy, NULL, 32, MBEDTLS_ENTROPY_SOURCE_STRONG);
+    mbedtls_entropy_init(&t->entropy);
+    mbedtls_ctr_drbg_init(&t->drbg);
+    mbedtls_x509_crt_init(&t->cas);
+    mbedtls_ssl_config_init(&t->conf);
+    mbedtls_entropy_add_source(&t->entropy, wii_entropy, NULL, 32, MBEDTLS_ENTROPY_SOURCE_STRONG);
 
     char personal[64];
     snprintf(personal, sizeof personal, "libwiiupdate %llu %lld", (unsigned long long)gettime(), (long long)time(NULL));
-    if (mbedtls_ctr_drbg_seed(&tls.drbg, mbedtls_entropy_func, &tls.entropy, (const unsigned char *)personal,
+    if (mbedtls_ctr_drbg_seed(&t->drbg, mbedtls_entropy_func, &t->entropy, (const unsigned char *)personal,
                               strlen(personal)))
         return -1;
-    if (mbedtls_x509_crt_parse(&tls.cas, (const unsigned char *)WIIUPDATE_CA_PEM, sizeof WIIUPDATE_CA_PEM) < 0)
+    if (mbedtls_x509_crt_parse(&t->cas, (const unsigned char *)WIIUPDATE_CA_PEM, sizeof WIIUPDATE_CA_PEM) < 0)
         return -1;
-    if (mbedtls_ssl_config_defaults(&tls.conf, MBEDTLS_SSL_IS_CLIENT, MBEDTLS_SSL_TRANSPORT_STREAM,
+    if (mbedtls_ssl_config_defaults(&t->conf, MBEDTLS_SSL_IS_CLIENT, MBEDTLS_SSL_TRANSPORT_STREAM,
                                     MBEDTLS_SSL_PRESET_DEFAULT))
         return -1;
-    mbedtls_ssl_conf_authmode(&tls.conf, MBEDTLS_SSL_VERIFY_REQUIRED);
-    mbedtls_ssl_conf_ca_chain(&tls.conf, &tls.cas, NULL);
-    mbedtls_ssl_conf_rng(&tls.conf, mbedtls_ctr_drbg_random, &tls.drbg);
+    mbedtls_ssl_conf_authmode(&t->conf, MBEDTLS_SSL_VERIFY_REQUIRED);
+    mbedtls_ssl_conf_ca_chain(&t->conf, &t->cas, NULL);
+    mbedtls_ssl_conf_rng(&t->conf, mbedtls_ctr_drbg_random, &t->drbg);
     return 0;
 }
 
-static void tls_free(void)
+static void tls_free(tls_t *t)
 {
-    mbedtls_ssl_config_free(&tls.conf);
-    mbedtls_x509_crt_free(&tls.cas);
-    mbedtls_ctr_drbg_free(&tls.drbg);
-    mbedtls_entropy_free(&tls.entropy);
+    mbedtls_ssl_config_free(&t->conf);
+    mbedtls_x509_crt_free(&t->cas);
+    mbedtls_ctr_drbg_free(&t->drbg);
+    mbedtls_entropy_free(&t->entropy);
 }
 
 static int conn_open(conn_t *c, const char *host)
@@ -137,7 +140,7 @@ static int conn_open(conn_t *c, const char *host)
     c->pos = c->len = 0;
     c->eof = 0;
     mbedtls_ssl_init(&c->ssl);
-    if (mbedtls_ssl_setup(&c->ssl, &tls.conf) || mbedtls_ssl_set_hostname(&c->ssl, host)) return -1;
+    if (mbedtls_ssl_setup(&c->ssl, &c->tls->conf) || mbedtls_ssl_set_hostname(&c->ssl, host)) return -1;
 
     struct hostent *he = net_gethostbyname(host);
     if (*c->cancel || !he || he->h_addrtype != AF_INET || !he->h_addr_list[0]) return -1;
@@ -258,10 +261,12 @@ int wiiupdate_http_get(const char *start_url, const char *accept, wiiupdate_sink
 {
     char *url = malloc(URL_MAX), *line = malloc(URL_MAX), *location = malloc(URL_MAX);
     conn_t *c = malloc(sizeof *c);
+    tls_t *t = malloc(sizeof *t);
     int result = -1, tls_ready = 0;
-    if (!url || !line || !location || !c) goto out;
+    if (!url || !line || !location || !c || !t) goto out;
     tls_ready = 1;
-    if (tls_init() < 0) goto out;
+    c->tls = t;
+    if (tls_init(t) < 0) goto out;
     snprintf(url, URL_MAX, "%s", start_url);
     c->cancel = cancel;
 
@@ -341,10 +346,120 @@ int wiiupdate_http_get(const char *start_url, const char *accept, wiiupdate_sink
     }
 
 out:
-    if (tls_ready) tls_free();
+    if (tls_ready) tls_free(t);
+    free(t);
     free(c);
     free(location);
     free(line);
     free(url);
     return *cancel ? -1 : result;
+}
+
+/* ── POST ────────────────────────────────────────────────────────────────── */
+
+typedef struct {
+    char *data;
+    size_t len, cap, max;
+} reply_t;
+
+static int reply_sink(void *ctx, const unsigned char *data, size_t len)
+{
+    reply_t *r = ctx;
+    if (r->len + len > r->max) return -1;
+    if (r->len + len + 1 > r->cap) {
+        size_t cap = r->cap ? r->cap : 4096;
+        while (cap < r->len + len + 1) cap *= 2;
+        char *n = realloc(r->data, cap);
+        if (!n) return -1;
+        r->data = n;
+        r->cap = cap;
+    }
+    memcpy(r->data + r->len, data, len);
+    r->len += len;
+    r->data[r->len] = 0;
+    return 0;
+}
+
+int wiiupdate_http_post(const char *url, const char *content_type, const void *body, size_t body_len,
+                        const char *user_agent, char **reply, size_t *reply_len, size_t max_reply,
+                        volatile int *cancel)
+{
+    static volatile int never;
+    if (!cancel) cancel = &never;
+    *reply = NULL;
+    if (reply_len) *reply_len = 0;
+    char host[128];
+    const char *path;
+    if (split_url(url, host, sizeof host, &path) < 0) return -1;
+
+    char *line = malloc(URL_MAX);
+    conn_t *c = malloc(sizeof *c);
+    tls_t *t = malloc(sizeof *t);
+    reply_t r = { NULL, 0, 0, max_reply ? max_reply : 1u << 20 };
+    int status = -1, tls_ready = 0, opened = 0;
+    if (!line || !c || !t) goto out;
+    tls_ready = 1;
+    c->tls = t;
+    c->cancel = cancel;
+    if (tls_init(t) < 0) goto out;
+    opened = 1;
+    if (conn_open(c, host) < 0) goto out;
+
+    int req = snprintf(line, URL_MAX,
+                       "POST %s HTTP/1.1\r\n"
+                       "Host: %s\r\n"
+                       "User-Agent: %s\r\n"
+                       "Accept: */*\r\n"
+                       "Accept-Encoding: identity\r\n"
+                       "Content-Type: %s\r\n"
+                       "Content-Length: %u\r\n"
+                       "Connection: close\r\n\r\n",
+                       path, host, user_agent && *user_agent ? user_agent : "libwiiupdate/1.1",
+                       content_type ? content_type : "application/octet-stream", (unsigned)body_len);
+    int st = 0, chunked = 0;
+    long long length = -1;
+    if (req >= URL_MAX || conn_write(c, line, req) < 0 || (body_len && conn_write(c, body, body_len) < 0) ||
+        conn_line(c, line, URL_MAX) < 0 || strncmp(line, "HTTP/1.", 7) || (st = atoi(line + 9)) < 100)
+        goto out;
+    for (;;) {
+        int n = conn_line(c, line, URL_MAX);
+        if (n < 0) goto out;
+        if (n == 0) break;
+        if (!strncasecmp(line, "content-length:", 15)) length = strtoll(line + 15, NULL, 10);
+        else if (!strncasecmp(line, "transfer-encoding:", 18) && strcasestr(line + 18, "chunked")) chunked = 1;
+    }
+    if (chunked) {
+        for (;;) {
+            if (conn_line(c, line, URL_MAX) < 0) goto out;
+            long long size = strtoll(line, NULL, 16);
+            if (size <= 0) break;
+            if (conn_body(c, size, reply_sink, &r) < 0 || conn_line(c, line, URL_MAX) < 0) goto out;
+        }
+    } else if (conn_body(c, length, reply_sink, &r) < 0) {
+        goto out;
+    }
+    if (!r.data && reply_sink(&r, (const unsigned char *)"", 0) < 0) goto out;     /* an empty, terminated reply */
+    status = st;
+
+out:
+    if (opened) conn_close(c);
+    if (tls_ready) tls_free(t);
+    free(t);
+    free(c);
+    free(line);
+    if (status < 0 || *cancel) {
+        free(r.data);
+        return -1;
+    }
+    *reply = r.data;
+    if (reply_len) *reply_len = r.len;
+    return status;
+}
+
+int WIIUPDATE_HttpPost(const char *url, const char *content_type, const void *body, size_t body_len,
+                       const char *user_agent, char **reply, size_t *reply_len, size_t max_reply,
+                       volatile int *cancel)
+{
+    if (!url || !reply || (body_len && !body)) return -1;
+    return wiiupdate_http_post(url, content_type, body, body_len, user_agent, reply, reply_len, max_reply, cancel);
 }

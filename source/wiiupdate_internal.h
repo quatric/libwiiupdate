@@ -14,6 +14,11 @@ typedef int (*wiiupdate_sink)(void *ctx, const unsigned char *data, size_t len);
 int wiiupdate_http_get(const char *url, const char *accept, wiiupdate_sink sink, void (*on_length)(void *, long long),
                        void *ctx, volatile int *cancel);
 
+/* HTTPS POST without redirects; see WIIUPDATE_HttpPost. */
+int wiiupdate_http_post(const char *url, const char *content_type, const void *body, size_t body_len,
+                        const char *user_agent, char **reply, size_t *reply_len, size_t max_reply,
+                        volatile int *cancel);
+
 /* Highest numbered non-prerelease tag in a /releases reply. */
 int wiiupdate_newest_tag(const char *json, char *out, size_t out_len);
 

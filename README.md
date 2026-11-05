@@ -146,6 +146,10 @@ is only written when it is missing from the SD card.
 * `WIIUPDATE_Cancel()`: drop the result; the thread winds down by itself.
 * `WIIUPDATE_Latest()`, `WIIUPDATE_Current()`, `WIIUPDATE_CompareVersions(a, b)`.
 * `WIIUPDATE_InstallDir()`: the folder the update went to.
+* `WIIUPDATE_HttpPost(url, content_type, body, len, user_agent, &reply, &reply_len, max, cancel)`:
+  one HTTPS POST with the library's TLS, for an app's own web API (no second mbedTLS).
+  Returns the HTTP status (the reply body comes back whatever it is; `free()` it) or -1.
+  Each request has its own TLS state, so it can run while an update check does.
 
 ### Using it from an app
 
