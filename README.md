@@ -118,7 +118,9 @@ else if (st == WIIUPDATE_POPUP_OPEN) {
 
 `WIIUPDATE_Install()` picks the release's `.zip` asset (names containing
 `hbc`, `homebrew` or `wii` win when there are several), or a `.dol` if there is
-no zip. It needs the app's storage mounted through libfat; if the app has not
+no zip. Zips for the Wii U (`wiiu`, `wup` or `aroma` in the name, as
+[libwiiuupdate](https://github.com/quatric/libwiiuupdate) picks them) are never
+installed, so one release can carry both builds. It needs the app's storage mounted through libfat; if the app has not
 called `fatInitDefault()` the library does, provided the app links `-lfat`.
 
 The target folder is the folder of `argv[0]` as given to

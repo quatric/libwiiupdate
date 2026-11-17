@@ -114,7 +114,12 @@ int wiiupdate_release_asset(const char *json, const char *tag, char *out, size_t
         if (!q || q > end) break;
         size_t len = (size_t)(q - p);
         int score = 0;
-        if (ends_with(p, len, ".zip"))
+        /* A release may carry the Wii U build too (libwiiuupdate looks for
+           "wiiu", "wup" or "aroma" in the name): never install that one. */
+        if (ends_with(p, len, ".zip") && (contains(p, len, "wiiu") || contains(p, len, "wup")
+                                          || contains(p, len, "aroma")))
+            score = 0;
+        else if (ends_with(p, len, ".zip"))
             score = 2 + (contains(p, len, "hbc") || contains(p, len, "homebrew") || contains(p, len, "wii"));
         else if (ends_with(p, len, ".dol"))
             score = 1;
