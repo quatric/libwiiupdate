@@ -140,6 +140,10 @@ WIIUPDATE_SetUpdateFiles(files);
 The listed files are replaced when they changed; every other file in the zip
 is only written when it is missing from the SD card.
 
+A repository that releases several apps tells each one which asset is its
+own: `WIIUPDATE_SetAssetName("SheepShaver")` only installs assets whose file
+name contains that word (case-insensitive).
+
 ### Other calls
 
 * `WIIUPDATE_State()`: `CHECKING`, `UP_TO_DATE`, `AVAILABLE`, `FAILED` or `CANCELLED`.

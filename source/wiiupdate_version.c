@@ -88,6 +88,9 @@ static int contains(const char *s, size_t len, const char *word)
     return 0;
 }
 
+/* Set by WIIUPDATE_SetAssetName: only assets whose file name contains it */
+const char *wiiupdate_asset_name = NULL;
+
 /* Pick the asset of release `tag` to install: an HBC zip, else a .dol. */
 int wiiupdate_release_asset(const char *json, const char *tag, char *out, size_t out_len)
 {
@@ -114,6 +117,14 @@ int wiiupdate_release_asset(const char *json, const char *tag, char *out, size_t
         if (!q || q > end) break;
         size_t len = (size_t)(q - p);
         int score = 0;
+        const char *name = p + len;
+        while (name > p && name[-1] != '/') name--;
+        /* A release with several apps: only this app's files. */
+        if (wiiupdate_asset_name && wiiupdate_asset_name[0]
+            && !contains(name, (size_t)(q - name), wiiupdate_asset_name)) {
+            p = q;
+            continue;
+        }
         /* A release may carry the Wii U build too (libwiiuupdate looks for
            "wiiu", "wup" or "aroma" in the name): never install that one. */
         if (ends_with(p, len, ".zip") && (contains(p, len, "wiiu") || contains(p, len, "wup")

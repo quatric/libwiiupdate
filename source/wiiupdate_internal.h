@@ -24,6 +24,7 @@ int wiiupdate_newest_tag(const char *json, char *out, size_t out_len);
 
 /* Download URL of the asset to install for release `tag`: an HBC .zip
  * (preferring names with "hbc"/"homebrew"/"wii"), else a .dol. */
+extern const char *wiiupdate_asset_name;
 int wiiupdate_release_asset(const char *json, const char *tag, char *out, size_t out_len);
 
 /* Unpack an HBC zip into app_dir. Entries under ".../apps/<Name>/" land in

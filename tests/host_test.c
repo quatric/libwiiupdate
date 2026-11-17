@@ -52,6 +52,19 @@ int main(int argc, char **argv)
     CHECK(wiiupdate_release_asset(both, "v1.9", asset, sizeof asset) == 0 && !strcmp(asset, "https://x/App.dol"));
     CHECK(wiiupdate_release_asset(both, "v1.8", asset, sizeof asset) < 0);
 
+    /* Several apps in one release: each takes its own. */
+    const char *apps = "[{\"tag_name\":\"v3.0\",\"assets\":["
+                       "{\"browser_download_url\":\"https://x/BasiliskIIWii-3.0-hbc.zip\"},"
+                       "{\"browser_download_url\":\"https://x/SheepShaverWii-3.0-hbc.zip\"},"
+                       "{\"browser_download_url\":\"https://x/SheepShaverWiiU-3.0-wiiu.zip\"}]}]";
+    wiiupdate_asset_name = "sheepshaver";
+    CHECK(wiiupdate_release_asset(apps, "v3.0", asset, sizeof asset) == 0 && !strcmp(asset, "https://x/SheepShaverWii-3.0-hbc.zip"));
+    wiiupdate_asset_name = "BasiliskII";
+    CHECK(wiiupdate_release_asset(apps, "v3.0", asset, sizeof asset) == 0 && !strcmp(asset, "https://x/BasiliskIIWii-3.0-hbc.zip"));
+    wiiupdate_asset_name = "Other";
+    CHECK(wiiupdate_release_asset(apps, "v3.0", asset, sizeof asset) < 0);
+    wiiupdate_asset_name = NULL;
+
     /* Unpack: only apps/<Name>/ lands in the app folder, nothing escapes it. */
     mz_zip_archive zw;
     memset(&zw, 0, sizeof zw);

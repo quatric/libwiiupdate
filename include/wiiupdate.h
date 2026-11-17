@@ -99,6 +99,13 @@ void WIIUPDATE_SetAppPath(const char *argv0);
  * identical are skipped. */
 void WIIUPDATE_SetUpdateFiles(const char *const *files);
 
+/* When one repository releases several apps, only install the release asset
+ * whose file name contains `word` (case-insensitive), e.g. "SheepShaver" for
+ * SheepShaverWii-1.2.0-hbc.zip next to OtherAppWii-1.2.0-hbc.zip. Call before
+ * WIIUPDATE_Start. The string is not copied and must stay valid. NULL or ""
+ * (the default) considers every asset. */
+void WIIUPDATE_SetAssetName(const char *word);
+
 /* 1 when an update was found and its release has an installable asset (an
  * HBC .zip, or a .dol). */
 int WIIUPDATE_CanInstall(void);

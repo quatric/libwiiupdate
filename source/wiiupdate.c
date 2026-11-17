@@ -256,6 +256,7 @@ void WIIUPDATE_SetAppPath(const char *argv0)
 }
 
 void WIIUPDATE_SetUpdateFiles(const char *const *files) { update_files = files; }
+void WIIUPDATE_SetAssetName(const char *word) { wiiupdate_asset_name = word; }
 
 int WIIUPDATE_CanInstall(void) { return state == WIIUPDATE_AVAILABLE && asset[0]; }
 
